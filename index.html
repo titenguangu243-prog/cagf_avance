@@ -886,10 +886,16 @@ document.getElementById('loginForm').addEventListener('submit',async function(e)
     errEl.textContent='Connexion…';
     try{
       const {error}=await SB.auth.signInWithPassword({email:uname2email(u),password:p});
-      if(error){errEl.textContent='Identifiant ou mot de passe incorrect.';return;}
+      if(error){
+        const m=(error.message||'').toLowerCase();
+        if(m.includes('confirm'))errEl.textContent='E-mail non confirmé. Dans Supabase → Authentication → Providers → Email, désactivez « Confirm email » (ou confirmez le compte), puis réessayez.';
+        else if(m.includes('invalid'))errEl.textContent='Identifiant ou mot de passe incorrect — ou le compte n\'existe pas encore dans Supabase (Authentication → Users → Add user : '+uname2email(u)+').';
+        else errEl.textContent='Échec de connexion : '+error.message;
+        return;
+      }
       const ok=await afterAuth();
-      if(!ok)errEl.textContent='Profil introuvable pour ce compte. Contactez le super administrateur.';
-    }catch(ex){errEl.textContent='Erreur de connexion : '+(ex.message||ex);}
+      if(!ok)errEl.textContent='Connexion réussie mais profil introuvable. Dans Supabase (SQL Editor), créez le profil de ce compte (voir le script SQL, section amorçage).';
+    }catch(ex){errEl.textContent='Erreur : '+(ex.message||ex);}
     return;
   }
   // mode local (hors-ligne / démo)
@@ -910,7 +916,10 @@ async function afterAuth(){
     const {data:{user}}=await SB.auth.getUser();
     if(!user)return false;
     const {data:prof,error}=await SB.from('profiles').select('*').eq('id',user.id).maybeSingle();
-    if(error||!prof){await SB.auth.signOut();return false;}
+    if(error){console.warn('profiles',error);
+      toast('Lecture du profil impossible : '+error.message+' (le script SQL a-t-il été exécuté ?)','warn');
+      await SB.auth.signOut();return false;}
+    if(!prof){await SB.auth.signOut();return false;}
     SESSION={user:prof.username,code:prof.province||'national',role:prof.role,isAdmin:(prof.role==='superadmin'||prof.role==='admin'),uid:user.id};
     await sbLoadAll();SB_ON=true;
     if(canAllProv())ADMIN_SCOPE='kinshasa';
