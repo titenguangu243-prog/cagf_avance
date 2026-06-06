@@ -190,11 +190,10 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
       <button type="submit" class="btn">Se connecter</button>
       <div class="err" id="loginErr"></div>
       <div class="hintbox">
-        <b>Comptes :</b> 26 provinces (<code>cagf_&lt;province&gt;</code>) + Administration nationale
-        (<code>cagf_national</code>).<br>
-        <span class="muted">Mot de passe par défaut affiché dans la fiche des identifiants (menu Paramètres pour l'admin).</span>
+        <b>Comptes :</b> Contacter l'administrateur <br> 
+        <span class="muted">contact@ny-organization.be </span>
       </div>
-      <div style="margin-top:12px;text-align:center">
+      <div style="margin-top:12px;text-align:center;display:none">
         <div id="loginDbStatus" style="margin-bottom:6px"></div>
         <a href="#" onclick="loginConfigToggle();return false;" class="muted small" style="text-decoration:underline">⚙️ Configurer la base de données (Supabase)</a>
       </div>
@@ -829,8 +828,9 @@ function getUsers(){
 function saveUsers(u){lsSet('cagf_users',u);}
 /* droits par rôle */
 function roleMenus(role){
-  if(role==='gestionnaire')return ['dashboard','advances','just','national'];
-  return null; // null = tous les menus
+  if(role==='gestionnaire')return ['dashboard','advances','just','national','settings'];
+  if(role==='province')return ['dashboard','advances','just','settings'];
+  return null; // superadmin / admin = tous les menus
 }
 function canSettings(){return SESSION&&(SESSION.role==='superadmin'||SESSION.role==='admin');}
 function canDB(){return SESSION&&SESSION.role==='superadmin';}
@@ -936,9 +936,9 @@ function enterApp(){
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   const transversal=canAllProv();
-  document.getElementById('whoName').textContent=transversal?(provName(SESSION.code)||'CAGF National'):provName(SESSION.code);
+  document.getElementById('whoName').textContent='Bienvenue, '+SESSION.user;
   const roleLbl=(ROLES[SESSION.role]||'Utilisateur').toUpperCase();
-  document.getElementById('whoRole').textContent=transversal?('CAGF · '+roleLbl):('PROVINCE · '+provName(SESSION.code).toUpperCase());
+  document.getElementById('whoRole').textContent=transversal?('CAGF · '+roleLbl):(roleLbl+' · '+provName(SESSION.code).toUpperCase());
   buildNav();
   populateYearSelects();
   populateRefSelects();
@@ -976,8 +976,7 @@ function buildNav(){
   const list=MENUS.filter(m=>{
     if(allowed && !allowed.includes(m[0]))return false;     // rôle gestionnaire
     if(hid.includes(m[0]))return false;                      // menus budgétaires masqués
-    if(m[0]==='national' && !canAllProv())return false;      // vue nationale
-    if(m[0]==='settings' && SESSION.role==='gestionnaire')return false; // paramètres interdits au gestionnaire
+    if(m[0]==='national' && !canAllProv())return false;      // vue nationale (rôles transversaux)
     return true;
   });
   list.forEach(([id,lbl])=>{
@@ -1637,7 +1636,7 @@ function genFromBudget(){
 /* ===================== SETTINGS ===================== */
 function renderSettings(){
   const isAdmin=canSettings();const s=getSetup();
-  document.getElementById('setScope').innerHTML=isAdmin?(ROLES[SESSION.role]+' — configuration globale & comptes.'):'Province : <b>'+esc(provName(SESSION.code))+'</b>';
+  document.getElementById('setScope').innerHTML=isAdmin?(ROLES[SESSION.role]+' — configuration globale & comptes.'):(ROLES[SESSION.role]+(SESSION.role==='province'?' — '+esc(provName(SESSION.code)):'')+' · gérez votre mot de passe ci-dessous.');
   document.getElementById('setupCard').style.display=isAdmin?'block':'none';
   document.getElementById('usersCard').style.display=isAdmin?'block':'none';
   const dbCard=document.getElementById('dbCard');if(dbCard)dbCard.style.display=canDB()?'block':'none';
