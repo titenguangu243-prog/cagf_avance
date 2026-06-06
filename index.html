@@ -190,7 +190,7 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
       <button type="submit" class="btn">Se connecter</button>
       <div class="err" id="loginErr"></div>
       <div class="hintbox">
-        <b>Pour tout contact :</b><br>
+        <b style="color:var(--blue)">Pour tout contact :</b><br>
         📞 <a href="tel:+243979312298" style="color:inherit">+243 979 312 298</a><br>
         ✉️ <a href="mailto:infotech@ny-organization.be" style="color:inherit">infotech@ny-organization.be</a>
       </div>
@@ -583,7 +583,7 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
         <div class="note">L'administrateur national peut consulter et réinitialiser les mots de passe.
           Chaque province ne voit que ses propres données.</div>
         <div class="tbl-scroll"><table class="tbl"><thead><tr>
-          <th>Province / Entité</th><th>Identifiant</th><th>Mot de passe</th><th class="center">Rôle</th><th class="center no-print">Action</th>
+          <th>Province / Entité</th><th>Identifiant</th><th id="usersPassHead">Mot de passe</th><th class="center">Rôle</th><th class="center no-print">Action</th>
         </tr></thead><tbody id="usersRows"></tbody></table></div>
         <h3 style="margin-top:18px;font-size:14px">➕ Ajouter un utilisateur</h3>
         <div class="form-row">
@@ -770,10 +770,13 @@ const SB_DEFAULT={
 function sbConf(){const c=P(LS.getItem('cagf_sb'));if(c&&c.url&&c.key)return c;return (SB_DEFAULT.url&&SB_DEFAULT.key)?SB_DEFAULT:null;}
 function sbSetConf(url,key){LS.setItem('cagf_sb',J({url:url.trim().replace(/\/$/,''),key:key.trim()}));}
 function sbClearConf(){LS.removeItem('cagf_sb');}
+let AUTH_MODE=false;            // true = connecté à Supabase (authentification Supabase Auth)
+const EMAIL_DOMAIN='cagf.local';
+function uname2email(u){u=String(u||'').trim().toLowerCase();return u.includes('@')?u:(u+'@'+EMAIL_DOMAIN);}
 function sbInit(){const c=sbConf();
-  if(c&&c.url&&c.key&&window.supabase){try{SB=window.supabase.createClient(c.url,c.key);return true;}catch(e){console.warn('Supabase init',e);}}
+  if(c&&c.url&&c.key&&window.supabase){try{SB=window.supabase.createClient(c.url,c.key);AUTH_MODE=true;return true;}catch(e){console.warn('Supabase init',e);}}
   return false;}
-async function sbLoadAll(){ // charge toutes les lignes app_state -> DB
+async function sbLoadAll(){ // charge les lignes app_state autorisées (filtrées par RLS) -> DB
   const {data,error}=await SB.from(SB_TABLE).select('k,v');
   if(error)throw error;
   DB={};(data||[]).forEach(r=>{DB[r.k]=r.v;});SB_ON=true;
@@ -783,9 +786,21 @@ async function sbUpsert(k,v){try{const {error}=await SB.from(SB_TABLE).upsert({k
   catch(e){console.warn('Supabase upsert',k,e);toast('Sauvegarde cloud échouée (donnée gardée en local)','warn');}}
 async function sbDelete(k){try{await SB.from(SB_TABLE).delete().eq('k',k);}catch(e){console.warn('Supabase delete',e);}}
 /* API inchangée pour le reste de l'app : lecture mémoire, écriture mémoire + cloud + cache local */
-function lsGet(k,def){return (k in DB)?DB[k]:def;}
-function lsSet(k,v){DB[k]=v; try{LS.setItem(k,J(v));}catch(e){} if(SB_ON)sbUpsert(k,v);}
-function lsDel(k){delete DB[k]; try{LS.removeItem(k);}catch(e){} if(SB_ON)sbDelete(k);}
+/* Clés strictement locales au navigateur — JAMAIS partagées dans la base (sinon la
+   session d'un poste reconnecterait les autres). */
+const LOCAL_ONLY=new Set(['cagf_session']);
+function lsGet(k,def){
+  if(LOCAL_ONLY.has(k)){const v=P(LS.getItem(k));return v===null?def:v;}
+  return (k in DB)?DB[k]:def;
+}
+function lsSet(k,v){
+  if(LOCAL_ONLY.has(k)){try{LS.setItem(k,J(v));}catch(e){}return;}
+  DB[k]=v; try{LS.setItem(k,J(v));}catch(e){} if(SB_ON)sbUpsert(k,v);
+}
+function lsDel(k){
+  if(LOCAL_ONLY.has(k)){try{LS.removeItem(k);}catch(e){}return;}
+  delete DB[k]; try{LS.removeItem(k);}catch(e){} if(SB_ON)sbDelete(k);
+}
 function dbMode(){return SB_ON?'cloud':'local';}
 
 /* ----- default setup (refdata extrait du fichier Excel) ----- */
@@ -814,8 +829,9 @@ function getUsers(){
 function saveUsers(u){lsSet('cagf_users',u);}
 /* droits par rôle */
 function roleMenus(role){
-  if(role==='gestionnaire')return ['dashboard','advances','just','national'];
-  return null; // null = tous les menus
+  if(role==='gestionnaire')return ['dashboard','advances','just','national','settings'];
+  if(role==='province')return ['dashboard','advances','just','settings'];
+  return null; // superadmin / admin = tous les menus
 }
 function canSettings(){return SESSION&&(SESSION.role==='superadmin'||SESSION.role==='admin');}
 function canDB(){return SESSION&&SESSION.role==='superadmin';}
@@ -862,10 +878,28 @@ const AGE_BUCKETS=[
 function ageBucket(days){return AGE_BUCKETS.find(b=>days>=b.min && days<b.max)||AGE_BUCKETS[AGE_BUCKETS.length-1];}
 
 /* ===================== AUTH ===================== */
-document.getElementById('loginForm').addEventListener('submit',function(e){
+document.getElementById('loginForm').addEventListener('submit',async function(e){
   e.preventDefault();
   const u=document.getElementById('loginUser').value.trim().toLowerCase();
   const p=document.getElementById('loginPass').value;
+  const errEl=document.getElementById('loginErr');errEl.textContent='';
+  if(AUTH_MODE){
+    errEl.textContent='Connexion…';
+    try{
+      const {error}=await SB.auth.signInWithPassword({email:uname2email(u),password:p});
+      if(error){
+        const m=(error.message||'').toLowerCase();
+        if(m.includes('confirm'))errEl.textContent='E-mail non confirmé. Dans Supabase → Authentication → Providers → Email, désactivez « Confirm email » (ou confirmez le compte), puis réessayez.';
+        else if(m.includes('invalid'))errEl.textContent='Identifiant ou mot de passe incorrect — ou le compte n\'existe pas encore dans Supabase (Authentication → Users → Add user : '+uname2email(u)+').';
+        else errEl.textContent='Échec de connexion : '+error.message;
+        return;
+      }
+      const ok=await afterAuth();
+      if(!ok)errEl.textContent='Connexion réussie mais profil introuvable. Dans Supabase (SQL Editor), créez le profil de ce compte (voir le script SQL, section amorçage).';
+    }catch(ex){errEl.textContent='Erreur : '+(ex.message||ex);}
+    return;
+  }
+  // mode local (hors-ligne / démo)
   const users=getUsers();
   if(users[u] && users[u].pass===p){
     const role=users[u].role||(users[u].isAdmin?'superadmin':'province');
@@ -874,18 +908,38 @@ document.getElementById('loginForm').addEventListener('submit',function(e){
     if(canAllProv())ADMIN_SCOPE='kinshasa';
     enterApp();
   }else{
-    document.getElementById('loginErr').textContent='Identifiant ou mot de passe incorrect.';
+    errEl.textContent='Identifiant ou mot de passe incorrect.';
   }
 });
-function logout(){SESSION=null;LS.removeItem('cagf_session');location.reload();}
+/* Authentification Supabase : récupère le profil (rôle + province), charge les données autorisées */
+async function afterAuth(){
+  try{
+    const {data:{user}}=await SB.auth.getUser();
+    if(!user)return false;
+    const {data:prof,error}=await SB.from('profiles').select('*').eq('id',user.id).maybeSingle();
+    if(error){console.warn('profiles',error);
+      toast('Lecture du profil impossible : '+error.message+' (le script SQL a-t-il été exécuté ?)','warn');
+      await SB.auth.signOut();return false;}
+    if(!prof){await SB.auth.signOut();return false;}
+    SESSION={user:prof.username,code:prof.province||'national',role:prof.role,isAdmin:(prof.role==='superadmin'||prof.role==='admin'),uid:user.id};
+    await sbLoadAll();SB_ON=true;
+    if(canAllProv())ADMIN_SCOPE='kinshasa';
+    enterApp();
+    return true;
+  }catch(ex){console.warn('afterAuth',ex);return false;}
+}
+async function logout(){
+  if(AUTH_MODE&&SB){try{await SB.auth.signOut();}catch(e){}}
+  SESSION=null;LS.removeItem('cagf_session');location.reload();
+}
 
 function enterApp(){
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   const transversal=canAllProv();
-  document.getElementById('whoName').textContent=transversal?(provName(SESSION.code)||'CAGF National'):provName(SESSION.code);
+  document.getElementById('whoName').textContent='Bienvenue, '+SESSION.user;
   const roleLbl=(ROLES[SESSION.role]||'Utilisateur').toUpperCase();
-  document.getElementById('whoRole').textContent=transversal?('CAGF · '+roleLbl):('PROVINCE · '+provName(SESSION.code).toUpperCase());
+  document.getElementById('whoRole').textContent=transversal?('CAGF · '+roleLbl):(roleLbl+' · '+provName(SESSION.code).toUpperCase());
   buildNav();
   populateYearSelects();
   populateRefSelects();
@@ -923,8 +977,7 @@ function buildNav(){
   const list=MENUS.filter(m=>{
     if(allowed && !allowed.includes(m[0]))return false;     // rôle gestionnaire
     if(hid.includes(m[0]))return false;                      // menus budgétaires masqués
-    if(m[0]==='national' && !canAllProv())return false;      // vue nationale
-    if(m[0]==='settings' && SESSION.role==='gestionnaire')return false; // paramètres interdits au gestionnaire
+    if(m[0]==='national' && !canAllProv())return false;      // vue nationale (rôles transversaux)
     return true;
   });
   list.forEach(([id,lbl])=>{
@@ -1584,7 +1637,7 @@ function genFromBudget(){
 /* ===================== SETTINGS ===================== */
 function renderSettings(){
   const isAdmin=canSettings();const s=getSetup();
-  document.getElementById('setScope').innerHTML=isAdmin?(ROLES[SESSION.role]+' — configuration globale & comptes.'):'Province : <b>'+esc(provName(SESSION.code))+'</b>';
+  document.getElementById('setScope').innerHTML=isAdmin?(ROLES[SESSION.role]+' — configuration globale & comptes.'):(ROLES[SESSION.role]+(SESSION.role==='province'?' — '+esc(provName(SESSION.code)):'')+' · gérez votre mot de passe ci-dessous.');
   document.getElementById('setupCard').style.display=isAdmin?'block':'none';
   document.getElementById('usersCard').style.display=isAdmin?'block':'none';
   const dbCard=document.getElementById('dbCard');if(dbCard)dbCard.style.display=canDB()?'block':'none';
@@ -1597,20 +1650,34 @@ function renderSettings(){
     document.getElementById('setCost').value=s.costInputs.join('\n');
     document.getElementById('setUnits').value=s.units.join('\n');
     document.getElementById('setShowBudget').checked=s.showBudget!==false;
-    const users=getUsers();
-    const defaultLogins=ALL_ACCOUNTS.map(a=>a.user);
     const roleBadge={superadmin:'<span class="badge b-red">Super admin</span>',admin:'<span class="badge b-blue">Admin national</span>',gestionnaire:'<span class="badge b-amber">Gestionnaire</span>',province:'<span class="badge b-green">Province</span>'};
-    document.getElementById('usersRows').innerHTML=Object.keys(users).map(login=>{
-      const u=users[login];const isDef=defaultLogins.includes(login);const rl=u.role||(u.isAdmin?'superadmin':'province');
-      const name=isDef?(ALL_ACCOUNTS.find(a=>a.user===login).name):(provName(u.code)+(rl==='province'?' — compte additionnel':''));
-      return `<tr><td><b>${esc(name)}</b></td><td><code>${esc(login)}</code></td>
-        <td><code>${esc(u.pass)}</code></td><td class="center">${roleBadge[rl]||rl}</td>
-        <td class="center no-print"><button class="iconbtn" onclick="resetPass('${login}','${u.code}')">Réinitialiser</button>
-        ${isDef?'':`<button class="iconbtn del" onclick="delUser('${login}')">🗑️</button>`}</td></tr>`;
-    }).join('');
     document.getElementById('newUserScope').innerHTML=
       '<option value="national">CAGF National</option>'+
       PROVINCES.map(p=>`<option value="${p.code}">${esc(p.name)}</option>`).join('');
+    if(AUTH_MODE){
+      // comptes gérés par Supabase Auth : on liste la table profiles
+      const passHead=document.getElementById('usersPassHead');if(passHead)passHead.textContent='Province';
+      SB.from('profiles').select('username,full_name,role,province').order('role').then(({data,error})=>{
+        if(error){document.getElementById('usersRows').innerHTML='<tr><td colspan="5" class="empty">Lecture des profils impossible : '+esc(error.message)+'</td></tr>';return;}
+        document.getElementById('usersRows').innerHTML=(data||[]).map(u=>{
+          const rl=u.role||'province';
+          return `<tr><td><b>${esc(u.full_name||u.username)}</b></td><td><code>${esc(u.username)}</code></td>
+            <td>${esc(u.province?provName(u.province):'—')}</td><td class="center">${roleBadge[rl]||rl}</td>
+            <td class="center no-print"><button class="iconbtn del" onclick="delUser('${esc(u.username)}')">🗑️ Profil</button></td></tr>`;
+        }).join('')||'<tr><td colspan="5" class="empty">Aucun profil.</td></tr>';
+      });
+    }else{
+      const users=getUsers();
+      const defaultLogins=ALL_ACCOUNTS.map(a=>a.user);
+      document.getElementById('usersRows').innerHTML=Object.keys(users).map(login=>{
+        const u=users[login];const isDef=defaultLogins.includes(login);const rl=u.role||(u.isAdmin?'superadmin':'province');
+        const name=isDef?(ALL_ACCOUNTS.find(a=>a.user===login).name):(provName(u.code)+(rl==='province'?' — compte additionnel':''));
+        return `<tr><td><b>${esc(name)}</b></td><td><code>${esc(login)}</code></td>
+          <td><code>${esc(u.pass)}</code></td><td class="center">${roleBadge[rl]||rl}</td>
+          <td class="center no-print"><button class="iconbtn" onclick="resetPass('${login}','${u.code}')">Réinitialiser</button>
+          ${isDef?'':`<button class="iconbtn del" onclick="delUser('${login}')">🗑️</button>`}</td></tr>`;
+      }).join('');
+    }
   }
 }
 function renderDbCard(){
@@ -1632,16 +1699,17 @@ function saveSetup(){
   s.showBudget=document.getElementById('setShowBudget').checked;
   saveSetupObj(s);buildNav();populateYearSelects();populateRefSelects();toast('Configuration enregistrée','ok');
 }
-function resetPass(user,code){const np=prompt('Nouveau mot de passe pour '+user+' :',defaultPass(code));
+function resetPass(user,code){
+  if(AUTH_MODE)return toast('En mode Supabase, le mot de passe se change par l\'utilisateur (Mon compte) ou via le tableau de bord Supabase (Authentication).','warn');
+  const np=prompt('Nouveau mot de passe pour '+user+' :',defaultPass(code));
   if(np==null)return;const u=getUsers();u[user].pass=np;saveUsers(u);renderSettings();toast('Mot de passe mis à jour','ok');}
 function onNewRoleChange(){
   const role=document.getElementById('newUserRole').value;
   const scope=document.getElementById('newUserScope');
-  // gestionnaire/admin/superadmin = portée nationale ; province = choisir une province
   const national=(role!=='province');
   scope.disabled=national;scope.value=national?'national':scope.value;
 }
-function addUser(){
+async function addUser(){
   const login=(document.getElementById('newUserLogin').value||'').trim().toLowerCase();
   const pass=document.getElementById('newUserPass').value;
   const role=document.getElementById('newUserRole').value;
@@ -1650,6 +1718,21 @@ function addUser(){
   if(!login)return toast('Saisir un identifiant','warn');
   if(/\s/.test(login))return toast('Identifiant sans espace','warn');
   if(!pass)return toast('Saisir un mot de passe','warn');
+  if(pass.length<6)return toast('Mot de passe : 6 caractères minimum (exigence Supabase)','warn');
+  if(AUTH_MODE){
+    // 1) créer le compte d'authentification via un client secondaire (sans toucher la session admin)
+    const c=sbConf();const tmp=window.supabase.createClient(c.url,c.key,{auth:{persistSession:false,autoRefreshToken:false}});
+    const {data,error}=await tmp.auth.signUp({email:uname2email(login),password:pass});
+    if(error)return toast('Création échouée : '+error.message,'warn');
+    const uid=data.user&&data.user.id;
+    if(!uid)return toast('Compte non créé. Désactivez « Confirm email » dans Supabase (Authentication → Providers → Email).','warn');
+    // 2) créer le profil (rôle + province) avec la session admin
+    const prov=(role==='province')?scope:null;
+    const {error:e2}=await SB.from('profiles').insert({id:uid,username:login,full_name:provName(scope==='national'?'national':scope),role,province:prov});
+    if(e2)return toast('Profil non créé : '+e2.message,'warn');
+    document.getElementById('newUserLogin').value='';document.getElementById('newUserPass').value='';
+    renderSettings();return toast('Utilisateur « '+login+' » ('+ROLES[role]+') créé','ok');
+  }
   const u=getUsers();
   if(u[login])return toast('Cet identifiant existe déjà','warn');
   u[login]={code:scope,pass:pass,role:role,isAdmin:(role==='superadmin'||role==='admin')};
@@ -1657,7 +1740,14 @@ function addUser(){
   document.getElementById('newUserLogin').value='';document.getElementById('newUserPass').value='';
   renderSettings();toast('Utilisateur « '+login+' » ('+ROLES[role]+') ajouté','ok');
 }
-function delUser(login){
+async function delUser(login){
+  if(AUTH_MODE){
+    if(login===SESSION.user)return toast('Vous ne pouvez pas supprimer votre propre compte.','warn');
+    if(!confirm('Supprimer le profil de '+login+' ? (Le compte d\'authentification doit être retiré séparément dans Supabase → Authentication.)'))return;
+    const {error}=await SB.from('profiles').delete().eq('username',login);
+    if(error)return toast('Suppression échouée : '+error.message,'warn');
+    renderSettings();return toast('Profil supprimé','warn');
+  }
   if(ALL_ACCOUNTS.some(a=>a.user===login))return toast('Compte par défaut non supprimable','warn');
   if(!confirm('Supprimer l\'utilisateur '+login+' ?'))return;
   const u=getUsers();delete u[login];saveUsers(u);renderSettings();toast('Utilisateur supprimé','warn');
@@ -1687,7 +1777,11 @@ async function dbPushAll(silent){
 }
 function dbDisconnect(){if(!confirm('Revenir en mode local (navigateur) ? Les données déjà enregistrées restent dans Supabase.'))return;
   sbClearConf();SB=null;SB_ON=false;loadLocalToDB();renderDbCard();renderAll();toast('Mode local réactivé','warn');}
-function changeMyPass(){const np=document.getElementById('myNewPass').value;if(!np)return toast('Saisir un mot de passe','warn');
+async function changeMyPass(){const np=document.getElementById('myNewPass').value;if(!np)return toast('Saisir un mot de passe','warn');
+  if(AUTH_MODE){if(np.length<6)return toast('6 caractères minimum','warn');
+    const {error}=await SB.auth.updateUser({password:np});
+    if(error)return toast('Échec : '+error.message,'warn');
+    document.getElementById('myNewPass').value='';return toast('Votre mot de passe a été modifié','ok');}
   const u=getUsers();u[SESSION.user].pass=np;saveUsers(u);document.getElementById('myNewPass').value='';toast('Votre mot de passe a été modifié','ok');}
 
 /* ===================== IMPORT / EXPORT ===================== */
@@ -1803,18 +1897,27 @@ function loginConfigToggle(){const el=document.getElementById('loginDbBox');el.c
   const c=sbConf();if(c){document.getElementById('loginDbUrl').value=c.url;document.getElementById('loginDbKey').value=c.key;}}
 async function loginDbSave(){const url=document.getElementById('loginDbUrl').value.trim(),key=document.getElementById('loginDbKey').value.trim();
   if(!url||!key)return toast('URL et clé requises','warn');sbSetConf(url,key);toast('Configuration enregistrée — rechargement…','ok');setTimeout(()=>location.reload(),700);}
+function setLoginStatus(){
+  const ls=document.getElementById('loginDbStatus');if(!ls)return;
+  if(AUTH_MODE)ls.innerHTML='<span class="badge b-green">● Base de données connectée (Supabase Auth)</span>';
+  else ls.innerHTML=sbConf()?'<span class="badge b-red">● Base configurée mais hors-ligne</span>':'<span class="badge b-amber">● Mode local (navigateur)</span>';
+}
 async function boot(){
-  // 1) connexion base de données si configurée
   const connected=sbInit();
-  if(connected){try{await sbLoadAll();}catch(e){console.warn('Supabase load',e);SB_ON=false;loadLocalToDB();}}
-  else{loadLocalToDB();}
-  // 2) statut de connexion sur l'écran de login
-  const ls=document.getElementById('loginDbStatus');
-  if(ls)ls.innerHTML=SB_ON?'<span class="badge b-green">● Base de données connectée</span>':(sbConf()?'<span class="badge b-red">● Base configurée mais hors-ligne</span>':'<span class="badge b-amber">● Mode local (navigateur)</span>');
-  // 3) amorçage utilisateurs + session
-  getUsers();
-  const s=lsGet('cagf_session',null);
-  if(s){SESSION=s;if(!SESSION.role)SESSION.role=SESSION.isAdmin?'superadmin':'province';if(canAllProv())ADMIN_SCOPE='kinshasa';enterApp();}
+  if(connected){
+    // mode EN LIGNE : authentification Supabase
+    setLoginStatus();
+    try{
+      const {data:{session}}=await SB.auth.getSession();
+      if(session){await afterAuth();}   // session Supabase déjà active -> entrer
+    }catch(e){console.warn('getSession',e);}
+  }else{
+    // mode LOCAL (hors-ligne / démo) : ancien mécanisme
+    loadLocalToDB();setLoginStatus();
+    getUsers();
+    const s=lsGet('cagf_session',null);
+    if(s){SESSION=s;if(!SESSION.role)SESSION.role=SESSION.isAdmin?'superadmin':'province';if(canAllProv())ADMIN_SCOPE='kinshasa';enterApp();}
+  }
 }
 boot();
 
