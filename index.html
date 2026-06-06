@@ -163,6 +163,11 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{padding:7px 14px;border:none;background:#fff;color:var(--muted);font-size:12.5px;font-weight:600;cursor:pointer}
 .seg button.active{background:var(--blue);color:#fff}
+.pc-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.pc-row select{flex:2}.pc-row input{flex:1}
+.pc-row .rm{background:#fbdcdf;color:#9b1020;border:none;border-radius:6px;width:30px;height:32px;cursor:pointer;font-weight:700}
+.just-summary{margin:8px 0 4px;font-size:13px;font-weight:600;display:flex;gap:18px;flex-wrap:wrap}
+.just-summary .rest-red{color:#b91c1c}.just-summary .ok-green{color:#0f9d58}
 @media print{.topbar,.nav,.toolbar,.no-print{display:none!important}.wrap{padding:0}.card{box-shadow:none;border:1px solid #ccc}}
 </style>
 </head>
@@ -350,6 +355,7 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
         <div class="tbl-scroll"><table class="tbl"><thead><tr>
           <th>Date avance</th><th>Bénéficiaire</th><th>OP</th><th>Activité</th><th>Ligne bud.</th>
           <th class="num">Montant</th><th class="center">Date justif.</th><th class="num">Justifié</th>
+          <th class="num">Reste à justif.</th>
           <th class="center">Jours non justif.</th><th class="center">Statut</th><th class="center no-print">Actions</th></tr></thead>
           <tbody id="advRows"></tbody></table></div>
         <div class="legend">
@@ -371,10 +377,11 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
         </div>
       </div>
       <div class="card">
-        <h3>Avances à justifier</h3>
+        <h3>Avances à justifier <span class="pill" id="justAlert"></span></h3>
         <div class="tbl-scroll"><table class="tbl"><thead><tr>
           <th>Date avance</th><th>Bénéficiaire</th><th class="num">Montant</th>
-          <th class="center">Jours écoulés</th><th class="center">Pièces</th><th class="center">Statut</th>
+          <th class="num">Justifié</th><th class="num">Reste</th>
+          <th>Pièces fournies</th><th class="center">Jours écoulés</th><th class="center">Statut</th>
           <th class="center no-print">Action</th></tr></thead>
           <tbody id="justRows"></tbody></table></div>
       </div>
@@ -507,6 +514,24 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
           <tbody id="repRows"></tbody>
           <tfoot id="repFoot"></tfoot></table></div>
       </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h3>🧾 Synthèse par type de pièce justificative</h3>
+          <div class="scope" style="margin-bottom:8px">Montant justifié par catégorie de pièce, sur la période sélectionnée.</div>
+          <div class="tbl-scroll"><table class="tbl"><thead><tr>
+            <th>Type de pièce</th><th class="num">Montant justifié</th><th class="center">Nb pièces</th><th class="center">% du justifié</th></tr></thead>
+            <tbody id="repPieceRows"></tbody><tfoot id="repPieceFoot"></tfoot></table></div>
+        </div>
+        <div class="card">
+          <h3>⚠️ Justifications manquantes par activité</h3>
+          <div class="scope" style="margin-bottom:8px">Avances non entièrement justifiées sur la période : montant restant et alerte si le délai dépasse le seuil.</div>
+          <div class="tbl-scroll"><table class="tbl"><thead><tr>
+            <th>Activité</th><th>Bénéficiaire</th><th class="num">Montant</th><th class="num">Justifié</th>
+            <th class="num">Reste</th><th class="center">Jours</th></tr></thead>
+            <tbody id="repMissingRows"></tbody></table></div>
+        </div>
+      </div>
     </div>
 
     <!-- NATIONAL (admin) -->
@@ -573,6 +598,8 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
         <div class="field"><label>Interventions (1 par ligne)</label><textarea id="setInterv" rows="4"></textarea></div>
         <div class="field"><label>Éléments de coût (1 par ligne)</label><textarea id="setCost" rows="4"></textarea></div>
         <div class="field"><label>Unités de mesure (1 par ligne)</label><textarea id="setUnits" rows="3"></textarea></div>
+        <div class="field"><label>Types de pièces justificatives (1 par ligne)</label><textarea id="setPieces" rows="4" placeholder="Billet d'avion&#10;Go Pass & Taxes&#10;Perdiem&#10;Facture…"></textarea></div>
+        <div class="field"><label>Lignes budgétaires (1 par ligne — proposées automatiquement dans le formulaire des avances)</label><textarea id="setLines" rows="5" placeholder="N°122 - Appuyer la supervision intégrée&#10;N°110 - Frais de fonctionnement DPS…"></textarea></div>
         <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="setShowBudget" style="width:auto"> Afficher les menus de planification budgétaire (Budget Détaillé, Budget Trimestriel, Rapports)</label></div>
         <button class="btn sm green" onclick="saveSetup()">💾 Enregistrer la configuration</button>
@@ -678,15 +705,16 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
       <div class="field"></div>
     </div>
     <hr style="border:none;border-top:1px solid var(--line);margin:8px 0 14px">
-    <div class="note">Justification (laisser vide tant que l'avance n'est pas justifiée).</div>
+    <div class="note">Justification par pièce (laisser vide tant que l'avance n'est pas justifiée). Le reste à justifier est calculé automatiquement.</div>
     <div class="form-row">
       <div class="field"><label>Date de dépôt des justificatifs</label><input type="date" id="advFJDate"></div>
-      <div class="field"><label>Montant justifié (USD)</label><input type="number" id="advFJAmt" step="0.01"></div>
-    </div>
-    <div class="form-row">
       <div class="field"><label>Montant rendu / reliquat (USD)</label><input type="number" id="advFRet" step="0.01"></div>
-      <div class="field"><label>Nature des pièces</label><input type="text" id="advFNature" placeholder="rapport, factures, OP…"></div>
     </div>
+    <div class="field"><label>Pièces justificatives (montant par type)</label>
+      <div id="advPieces"></div>
+      <button type="button" class="btn sm ghost" onclick="advAddPiece()" style="margin-top:6px">＋ Ajouter une pièce</button>
+    </div>
+    <div id="advJustifSummary" class="just-summary"></div>
     <div class="field"><label>Commentaires / motif de non justification</label><textarea id="advFCom" rows="2"></textarea></div>
     <button type="submit" class="btn">💾 Enregistrer l'avance</button>
   </form>
@@ -809,9 +837,11 @@ const DEFAULT_SETUP={
  modules:["SRPS: planification et gouvernance du secteur de la santé pour des services intégrés axés sur la personne","SRPS: systèmes de financement du secteur de la santé","SRPS: systèmes de gestion des produits de santé","Gestion de programme","SRPS / PP : RHS et qualité des soins","SRPS : systèmes de suivi et d’évaluation","SRPS / PP : systèmes de laboratoire (y compris nationaux et périphériques)","SRPS: renforcement des systèmes communautaires"],
  interventions:["Analyses, évaluations, examens et utilisation des données","Capacité de planification et d’achat","Capacité d’entreposage et de distribution","Données et analyses liées au financement de la santé","Gestion des subventions","Politique, stratégie, gouvernance","Qualité des données","Rapportage des données de routine","Renforcement des capacités et développement du leadership","SRPS / PP : supervision formative intégrée pour les agents de santé","SRPS / PP : surveillance des maladies et des événements prioritaires","Sources de données administratives","Stratégie nationale du secteur de la santé, politiques et réglementations","Systèmes de gestion des finances publiques","Systèmes d’information de la chaîne d’approvisionnement"],
  costInputs:["1.1 Salaires - gestion du programme","2.1 Indemnités journalières liés à la formation/transports/autres coûts","2.2 Indemnités journalières liés à l'assistance technique","2.3 Indemnités journalières liés à la supervision","2.4 Indemnités journalières liés à la sensibilisation","2.5 Autres coûts de transport","2.6 Indemnités journalières liés aux enquêtes/collecte de données","3.1 Honoraires liés à l'assistance technique / Consultants","3.2 Honoraires de l'agent fiduciaire","3.3 Honoraires des auditeurs externes","3.4 Autres services professionnels externes","8.1 Mobilier","8.2 Rénovation/constructions","9.0 Équipement non sanitaire","9.1 Matériel informatique, ordinateurs, logiciel","9.2 Véhicules","10.1 Supports imprimés (formulaires, livres, directives)","11.1 Coûts liés aux bureaux","11.4 Autres coûts liés à la gestion du programme","13.1 Financement axé sur les résultats (FAR)","13.3 Incitations aux employés"],
- units:["Coût moyen par formation/participant","Coût moyen des déplacements par visite de supervision","Coût moyen des déplacements par AT par an","Coût moyen des déplacements par événement (réunion/plaidoyer)","Coût moyen des déplacements par événement (enquête/collecte de données)","Coût administratif par unité de bureau et par trimestre","Coût salarial brut moyen par ETP par an","Honoraire de consultant par personne et par jour","Coût d'un véhicule","N/A"]
+ units:["Coût moyen par formation/participant","Coût moyen des déplacements par visite de supervision","Coût moyen des déplacements par AT par an","Coût moyen des déplacements par événement (réunion/plaidoyer)","Coût moyen des déplacements par événement (enquête/collecte de données)","Coût administratif par unité de bureau et par trimestre","Coût salarial brut moyen par ETP par an","Honoraire de consultant par personne et par jour","Coût d'un véhicule","N/A"],
+ pieceTypes:["Billet d'avion","Go Pass & Taxes","Perdiem / Frais de mission","Facture","Reçu","Bordereau de versement","Carburant","Location de salle","Honoraires","Liste de présence"],
+ budgetLines:[]
 };
-function getSetup(){return Object.assign({},DEFAULT_SETUP,lsGet('cagf_setup',{}));}
+function getSetup(){const s=Object.assign({},DEFAULT_SETUP,lsGet('cagf_setup',{}));if(!Array.isArray(s.pieceTypes)||!s.pieceTypes.length)s.pieceTypes=DEFAULT_SETUP.pieceTypes;if(!Array.isArray(s.budgetLines))s.budgetLines=[];return s;}
 function saveSetupObj(s){lsSet('cagf_setup',s);}
 
 /* ----- users / rôles / mots de passe ----- */
@@ -859,12 +889,41 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','
 function toast(msg,type){const t=document.getElementById('toast');const d=document.createElement('div');d.className='t '+(type||'');d.textContent=msg;t.appendChild(d);setTimeout(()=>d.remove(),3800);}
 
 /* avance : statut + jours non justifiés */
+function justifSum(a){if(Array.isArray(a.justifs)&&a.justifs.length)return a.justifs.reduce((s,p)=>s+(+p.amount||0),0);return +a.justifAmount||0;}
+function advRemaining(a){return Math.max(0,(+a.amount||0)-justifSum(a));}
 function advStatus(a){
   const seuil=getSetup().seuil;
-  if(a.justifDate){const days=Math.max(0,dDiff(a.date,a.justifDate));return {key:'just',label:'Justifiée',cls:'b-green',days,late:days>seuil};}
+  const amt=+a.amount||0, js=justifSum(a), rem=Math.max(0,amt-js);
+  if(amt>0 && rem<=0){const days=a.justifDate?Math.max(0,dDiff(a.date,a.justifDate)):Math.max(0,dDiff(a.date,todayStr()));return {key:'just',label:'Justifiée',cls:'b-green',days,late:days>seuil,justified:js,remaining:0};}
   const days=Math.max(0,dDiff(a.date,todayStr()));
-  if(days>seuil)return{key:'late',label:'En retard',cls:'b-red',days,late:true};
-  return{key:'pending',label:'Non justifiée',cls:'b-amber',days,late:false};
+  if(js>0)return{key:'partial',label:'Justifié partiellement',cls:'b-amber',days,late:days>seuil,justified:js,remaining:rem};
+  if(days>seuil)return{key:'late',label:'En retard',cls:'b-red',days,late:true,justified:0,remaining:rem};
+  return{key:'pending',label:'Non justifiée',cls:'b-amber',days,late:false,justified:0,remaining:rem};
+}
+/* ----- justification par pièce (formulaire avance) ----- */
+function pieceOptions(sel){return (getSetup().pieceTypes||[]).map(t=>`<option ${t===sel?'selected':''}>${esc(t)}</option>`).join('');}
+function advAddPiece(type,amount){
+  const wrap=document.getElementById('advPieces');
+  const row=document.createElement('div');row.className='pc-row';
+  row.innerHTML=`<select class="pc-type">${pieceOptions(type)}</select>
+    <input type="number" step="0.01" class="pc-amt" placeholder="Montant" value="${amount!=null?amount:''}">
+    <button type="button" class="rm" title="Retirer">✕</button>`;
+  row.querySelector('.rm').onclick=()=>{row.remove();advRecalc();};
+  row.querySelector('.pc-amt').addEventListener('input',advRecalc);
+  row.querySelector('.pc-type').addEventListener('change',advRecalc);
+  wrap.appendChild(row);advRecalc();
+}
+function advReadPieces(){return [...document.querySelectorAll('#advPieces .pc-row')].map(r=>({type:r.querySelector('.pc-type').value,amount:+r.querySelector('.pc-amt').value||0})).filter(p=>p.amount>0);}
+function advRecalc(){
+  const amt=+document.getElementById('advFAmt').value||0;
+  const js=advReadPieces().reduce((s,p)=>s+p.amount,0);
+  const rem=Math.max(0,amt-js);
+  const el=document.getElementById('advJustifSummary');if(!el)return;
+  let label='Non justifié';if(amt>0&&rem<=0)label='Entièrement justifié';else if(js>0)label='Justifié partiellement';
+  el.innerHTML=`<span>Avance : <b>${fmt(amt)}</b></span>
+    <span class="ok-green">Justifié : ${fmt(js)}</span>
+    <span class="rest-red">Reste à justifier : ${fmt(rem)}</span>
+    <span>${label}</span>`;
 }
 
 /* Tranches d'ancienneté (avances NON justifiées) — inspiré du tableau de suivi RSS */
@@ -1029,7 +1088,7 @@ function renderDashboard(){
   const just=adv.filter(a=>advStatus(a).key==='just');
   const justAmt=just.reduce((s,a)=>s+(+a.amount||0),0);
   const nonJust=adv.filter(a=>advStatus(a).key!=='just');
-  const njAmt=nonJust.reduce((s,a)=>s+Math.max(0,(+a.amount||0)-(+a.justifAmount||0)),0);
+  const njAmt=nonJust.reduce((s,a)=>s+advRemaining(a),0);
   const late=adv.filter(a=>advStatus(a).key==='late');
   const lateAmt=late.reduce((s,a)=>s+(+a.amount||0),0);
   document.getElementById('dashKpis').innerHTML=`
@@ -1042,8 +1101,8 @@ function renderDashboard(){
   adv.forEach(a=>{const qi=(a.quarter?+a.quarter.slice(1):+(quarterOf(a.date)||'Q1').slice(1))-1;if(qi>=0&&qi<4)rq[qi]+=+a.amount||0;});
   drawBar('chartTrim',['Q1','Q2','Q3','Q4'],[{label:'Avances décaissées',data:rq,color:'#00529b'}],c=>chTrim=c,chTrim);
   // donut statut
-  const counts=[just.length,adv.filter(a=>advStatus(a).key==='pending').length,late.length];
-  drawDonut('chartAdv',['Justifiée','Non justifiée','En retard'],counts,['#0f9d58','#f5a623','#ce1126'],c=>chAdv=c,chAdv);
+  const counts=[just.length,adv.filter(a=>advStatus(a).key==='partial').length,adv.filter(a=>advStatus(a).key==='pending').length,late.length];
+  drawDonut('chartAdv',['Justifiée','Justifié partiellement','Non justifiée','En retard'],counts,['#0f9d58','#f59e0b','#f5a623','#ce1126'],c=>chAdv=c,chAdv);
   // risk table : non justifiées triées par âge desc, couleur par tranche
   const risk=adv.map(a=>({a,st:advStatus(a)})).filter(x=>x.st.key!=='just').sort((x,y)=>y.st.days-x.st.days).slice(0,12);
   document.getElementById('dashRisk').innerHTML=risk.length?risk.map(({a,st})=>{const bk=ageBucket(st.days);
@@ -1176,8 +1235,10 @@ function lineQuarterRealized(adv){
 
 /* ===================== AVANCES ===================== */
 function refreshAdvLineSelect(){
-  const code=activeProvince(),d=getData(code);
-  const opts=d.budget.slice().sort((a,b)=>a.ln-b.ln).map(b=>`<option value="${b.ln}">N°${b.ln} — ${esc((b.activity||'').slice(0,40))} (${b.year})</option>`).join('');
+  const code=activeProvince(),d=getData(code);const s=getSetup();
+  let opts='';
+  (s.budgetLines||[]).forEach(l=>{const v=String(l);opts+=`<option value="${esc(v)}">${esc(v.slice(0,60))}</option>`;});
+  (d.budget||[]).slice().sort((a,b)=>a.ln-b.ln).forEach(b=>{opts+=`<option value="${b.ln}">N°${b.ln} — ${esc((b.activity||'').slice(0,40))} (${b.year})</option>`;});
   document.getElementById('advFLine').innerHTML='<option value="">— Ligne budgétaire —</option>'+opts;
 }
 function fillProvSelect(){
@@ -1193,9 +1254,9 @@ function fillProvSelect(){
   }
 }
 function openAdvModal(edit){
-  fillProvSelect();refreshAdvLineSelect();
   document.getElementById('advForm').reset();document.getElementById('advId').value='';
-  fillProvSelect();
+  fillProvSelect();refreshAdvLineSelect();
+  document.getElementById('advPieces').innerHTML='';
   document.getElementById('advFDate').value=todayStr();
   document.getElementById('advModalTitle').textContent='Nouvelle avance';
   if(edit){const d=getData(activeProvince());const a=d.advances.find(x=>x.id===edit);if(!a)return;
@@ -1204,22 +1265,27 @@ function openAdvModal(edit){
     document.getElementById('advFBen').value=a.beneficiary||'';document.getElementById('advFOP').value=a.op||'';
     document.getElementById('advFLine').value=a.lineNo||'';document.getElementById('advFAct').value=a.activity||'';
     document.getElementById('advFAmt').value=a.amount||'';document.getElementById('advFQ').value=a.quarter||quarterOf(a.date)||'Q1';
-    document.getElementById('advFJDate').value=a.justifDate||'';document.getElementById('advFJAmt').value=a.justifAmount||'';
-    document.getElementById('advFRet').value=a.returned||'';document.getElementById('advFNature').value=a.nature||'';
+    document.getElementById('advFJDate').value=a.justifDate||'';
+    document.getElementById('advFRet').value=a.returned||'';
     document.getElementById('advFCom').value=a.comment||'';document.getElementById('advModalTitle').textContent='Modifier l\'avance';
+    if(Array.isArray(a.justifs)&&a.justifs.length)a.justifs.forEach(p=>advAddPiece(p.type,p.amount));
+    else if(+a.justifAmount>0)advAddPiece(a.nature||undefined,+a.justifAmount);
   }
+  advRecalc();
   document.getElementById('advModal').classList.add('on');
 }
+document.getElementById('advFAmt').addEventListener('input',advRecalc);
 document.getElementById('advForm').addEventListener('submit',function(e){
   e.preventDefault();
   const targetCode=document.getElementById('advFProv').value||activeProvince();
   const id=document.getElementById('advId').value;
+  const pieces=advReadPieces();const jsum=pieces.reduce((s,p)=>s+p.amount,0);
   const obj={province:targetCode,date:document.getElementById('advFDate').value,beneficiary:document.getElementById('advFBen').value,
     op:document.getElementById('advFOP').value,lineNo:document.getElementById('advFLine').value,
     activity:document.getElementById('advFAct').value,amount:+document.getElementById('advFAmt').value||0,
     quarter:document.getElementById('advFQ').value,justifDate:document.getElementById('advFJDate').value,
-    justifAmount:+document.getElementById('advFJAmt').value||0,returned:+document.getElementById('advFRet').value||0,
-    nature:document.getElementById('advFNature').value,comment:document.getElementById('advFCom').value};
+    justifs:pieces,justifAmount:jsum,returned:+document.getElementById('advFRet').value||0,
+    nature:pieces.map(p=>p.type).join(', '),comment:document.getElementById('advFCom').value};
   if(id){
     const oldCode=activeProvince();
     if(oldCode!==targetCode){ // déplacer l'avance vers une autre province
@@ -1245,14 +1311,15 @@ function renderAdvances(){
   document.getElementById('advCount').textContent=list.length;
   const total=d.advances.reduce((s,a)=>s+(+a.amount||0),0);
   const just=d.advances.filter(a=>advStatus(a).key==='just');
+  const partial=d.advances.filter(a=>advStatus(a).key==='partial');
   const nonJust=d.advances.filter(a=>advStatus(a).key!=='just');
   const delays=d.advances.map(a=>advStatus(a).days);
   const avgDelay=delays.length?Math.round(delays.reduce((s,x)=>s+x,0)/delays.length):0;
 
-  /* ----- tranches d'ancienneté (avances non justifiées) ----- */
+  /* ----- tranches d'ancienneté (montant RESTANT à justifier) ----- */
   const buckets=AGE_BUCKETS.map(b=>({...b,amt:0,cnt:0}));
   let totalNJ=0,dangerAmt=0,dangerCnt=0;
-  nonJust.forEach(a=>{const days=advStatus(a).days;const out=Math.max(0,(+a.amount||0)-(+a.justifAmount||0));
+  nonJust.forEach(a=>{const days=advStatus(a).days;const out=advRemaining(a);
     const t=buckets.find(x=>x.key===ageBucket(days).key);t.amt+=out;t.cnt++;totalNJ+=out;
     if(days>=90){dangerAmt+=out;dangerCnt++;}});
   const maxAmt=Math.max(1,...buckets.map(b=>b.amt));
@@ -1273,7 +1340,7 @@ function renderAdvances(){
   document.getElementById('advKpis').innerHTML=`
    <div class="kpi blue"><div class="lbl">Total avances</div><div class="val">${fmt(total)}</div><div class="meta">${d.advances.length} avance(s)</div></div>
    <div class="kpi green"><div class="lbl">Justifiées</div><div class="val">${just.length}</div><div class="meta">${fmt(just.reduce((s,a)=>s+(+a.amount||0),0))}</div></div>
-   <div class="kpi amber"><div class="lbl">Non justifiées</div><div class="val">${nonJust.length}</div><div class="meta">${fmt(totalNJ)}</div></div>
+   <div class="kpi amber"><div class="lbl">Non / partiellement justifiées</div><div class="val">${nonJust.length}</div><div class="meta">${partial.length} partielle(s) · reste ${fmt(totalNJ)}</div></div>
    <div class="kpi red"><div class="lbl">En danger (&gt; 90 j)</div><div class="val">${dangerCnt}</div><div class="meta">${fmt(dangerAmt)} · délai moy. ${avgDelay} j</div></div>`;
 
   document.getElementById('advRows').innerHTML=list.length?list.map(a=>{const st=advStatus(a);
@@ -1281,29 +1348,41 @@ function renderAdvances(){
     const daysColor=st.key==='just'?'var(--green)':bk.color;
     const statusCell=st.key==='just'
       ? '<span class="badge b-green">Justifiée</span>'
-      : `<span class="badge" style="background:${bk.color};color:#fff">${bk.statut} · ${bk.label.replace(' jours','j')}</span>`;
+      : (st.key==='partial'
+         ? `<span class="badge b-amber">Justifié partiellement</span> <span class="muted small">(${bk.statut})</span>`
+         : `<span class="badge" style="background:${bk.color};color:#fff">${bk.statut} · ${bk.label.replace(' jours','j')}</span>`);
+    const js=justifSum(a), rem=advRemaining(a);
     return `<tr><td>${a.date||''}</td><td><b>${esc(a.beneficiary)}</b></td><td>${esc(a.op||'')}</td>
-    <td>${esc((a.activity||'').slice(0,34))}</td><td class="center">${a.lineNo?'N°'+a.lineNo:'—'}</td>
+    <td>${esc((a.activity||'').slice(0,34))}</td><td class="center">${a.lineNo?esc(String(a.lineNo).slice(0,16)):'—'}</td>
     <td class="num">${fmt(a.amount)}</td><td class="center">${a.justifDate||'—'}</td>
-    <td class="num">${a.justifAmount?fmt(a.justifAmount):'—'}</td>
+    <td class="num">${js?fmt(js):'—'}</td>
+    <td class="num">${rem>0?('<b style="color:#b91c1c">'+fmt(rem)+'</b>'):'<span class="ok-green">0</span>'}</td>
     <td class="num"><b style="color:${daysColor}">${st.days} j</b></td>
     <td class="center">${statusCell}</td>
     <td class="center no-print"><div class="row-act"><button class="iconbtn" onclick="openAdvModal('${a.id}')">✏️</button>
     <button class="iconbtn del" onclick="delAdv('${a.id}')">🗑️</button></div></td></tr>`;}).join('')
-    :'<tr><td colspan="11" class="empty">Aucune avance. Cliquez « ＋ Avance » ou importez un modèle Excel.</td></tr>';
+    :'<tr><td colspan="12" class="empty">Aucune avance. Cliquez « ＋ Avance » ou importez un modèle Excel.</td></tr>';
 }
 
 /* ===================== JUSTIFICATIONS ===================== */
 function renderJust(){
-  const code=activeProvince(),d=getData(code);
-  document.getElementById('justScope').innerHTML='Province : <b>'+esc(provName(code))+'</b>';
+  const code=activeProvince(),d=getData(code);const seuil=getSetup().seuil;
+  document.getElementById('justScope').innerHTML='Province : <b>'+esc(provName(code))+'</b> · pièces justificatives par avance';
   const list=d.advances.filter(a=>advStatus(a).key!=='just').sort((a,b)=>advStatus(b).days-advStatus(a).days);
+  const overdue=list.filter(a=>advStatus(a).days>seuil).length;
+  const al=document.getElementById('justAlert');
+  if(al)al.innerHTML=overdue?('⚠️ '+overdue+' avance(s) en retard (> '+seuil+' j)'):(list.length?list.length+' à justifier':'à jour');
   document.getElementById('justRows').innerHTML=list.length?list.map(a=>{const st=advStatus(a);const bk=ageBucket(st.days);
+    const js=justifSum(a), rem=advRemaining(a);
+    const pieces=(Array.isArray(a.justifs)&&a.justifs.length)?a.justifs.map(p=>esc(p.type)+' : '+fmt(p.amount)).join(' · '):'<span class="muted">aucune pièce</span>';
+    const alert=st.days>seuil?' 🔴':'';
     return `<tr style="background:${bk.bg}"><td>${a.date||''}</td><td><b>${esc(a.beneficiary)}</b></td><td class="num">${fmt(a.amount)}</td>
-    <td class="num"><b style="color:${bk.color}">${st.days} j</b></td>
-    <td class="center">${a.nature?'✓':'✗'}</td><td class="center"><span class="badge" style="background:${bk.color};color:#fff">${bk.statut} · ${bk.label.replace(' jours','j')}</span></td>
+    <td class="num">${js?fmt(js):'—'}</td><td class="num"><b style="color:#b91c1c">${fmt(rem)}</b></td>
+    <td class="small">${pieces}</td>
+    <td class="num"><b style="color:${bk.color}">${st.days} j${alert}</b></td>
+    <td class="center"><span class="badge ${st.key==='partial'?'b-amber':''}" style="${st.key==='partial'?'':'background:'+bk.color+';color:#fff'}">${st.key==='partial'?'Justifié partiellement':(bk.statut+' · '+bk.label.replace(' jours','j'))}</span></td>
     <td class="center no-print"><button class="iconbtn" onclick="openAdvModal('${a.id}')">Justifier</button></td></tr>`;}).join('')
-    :'<tr><td colspan="7" class="empty">Toutes les avances sont justifiées ✓</td></tr>';
+    :'<tr><td colspan="9" class="empty">Toutes les avances sont entièrement justifiées ✓</td></tr>';
 }
 
 /* ===================== RAPPORTS ===================== */
@@ -1346,6 +1425,31 @@ function renderReport(){
    <div class="kpi green"><div class="lbl">Réalisé</div><div class="val">${fmt(tR)}</div><div class="meta">${tB?Math.round(tR/tB*100):0}% d'exécution</div></div>
    <div class="kpi amber"><div class="lbl">Disponible</div><div class="val">${fmt(tB-tR)}</div></div>
    <div class="kpi"><div class="lbl">Activités suivies</div><div class="val">${out.length}</div></div>`;
+
+  /* ----- synthèse par type de pièce (avances de la période) ----- */
+  const inQ=a=>{const q=a.quarter?+a.quarter.slice(1):+(quarterOf(a.date)||'Q1').slice(1);return qs.includes(q);};
+  const periodAdv=adv.filter(inQ);
+  const byType={};let totJ=0;
+  periodAdv.forEach(a=>{(Array.isArray(a.justifs)?a.justifs:[]).forEach(p=>{
+    const t=p.type||'(non précisé)';if(!byType[t])byType[t]={amt:0,cnt:0};byType[t].amt+=+p.amount||0;byType[t].cnt++;totJ+=+p.amount||0;});});
+  const types=Object.keys(byType).sort((a,b)=>byType[b].amt-byType[a].amt);
+  document.getElementById('repPieceRows').innerHTML=types.length?types.map(t=>`
+    <tr><td>${esc(t)}</td><td class="num">${fmt(byType[t].amt)}</td><td class="center">${byType[t].cnt}</td>
+    <td class="center">${totJ?Math.round(byType[t].amt/totJ*100):0}%</td></tr>`).join('')
+    :'<tr><td colspan="4" class="empty">Aucune pièce justificative saisie sur la période.</td></tr>';
+  document.getElementById('repPieceFoot').innerHTML=types.length?`<tr style="font-weight:700;border-top:2px solid var(--blue)">
+    <td>Total justifié</td><td class="num">${fmt(totJ)}</td><td class="center">—</td><td class="center">100%</td></tr>`:'';
+
+  /* ----- justifications manquantes par activité ----- */
+  const seuilR=getSetup().seuil;
+  const missing=periodAdv.filter(a=>advRemaining(a)>0).sort((a,b)=>advStatus(b).days-advStatus(a).days);
+  document.getElementById('repMissingRows').innerHTML=missing.length?missing.map(a=>{const st=advStatus(a);const js=justifSum(a);
+    const al=st.days>seuilR?' 🔴':'';
+    return `<tr><td>${esc((a.activity||'').slice(0,40))}</td><td>${esc(a.beneficiary)}</td>
+    <td class="num">${fmt(a.amount)}</td><td class="num">${js?fmt(js):'—'}</td>
+    <td class="num"><b style="color:#b91c1c">${fmt(advRemaining(a))}</b></td>
+    <td class="num"><b style="color:${st.days>seuilR?'#b91c1c':'#a16207'}">${st.days} j${al}</b></td></tr>`;}).join('')
+    :'<tr><td colspan="6" class="empty">Toutes les avances de la période sont entièrement justifiées ✓</td></tr>';
 }
 
 /* ===================== VUE NATIONALE (admin) ===================== */
@@ -1354,7 +1458,7 @@ function provinceStats(code,year){
   const total=adv.reduce((s,a)=>s+(+a.amount||0),0);
   const just=adv.filter(a=>advStatus(a).key==='just');
   const nonJust=adv.filter(a=>advStatus(a).key!=='just');
-  const nonJustAmt=nonJust.reduce((s,a)=>s+(+a.amount||0),0);
+  const nonJustAmt=nonJust.reduce((s,a)=>s+advRemaining(a),0);
   const late=adv.filter(a=>advStatus(a).key==='late');
   const pctJust=adv.length?Math.round(just.length/adv.length*100):0;
   const delays=adv.map(a=>advStatus(a).days);
@@ -1649,6 +1753,8 @@ function renderSettings(){
     document.getElementById('setInterv').value=s.interventions.join('\n');
     document.getElementById('setCost').value=s.costInputs.join('\n');
     document.getElementById('setUnits').value=s.units.join('\n');
+    document.getElementById('setPieces').value=(s.pieceTypes||[]).join('\n');
+    document.getElementById('setLines').value=(s.budgetLines||[]).join('\n');
     document.getElementById('setShowBudget').checked=s.showBudget!==false;
     const roleBadge={superadmin:'<span class="badge b-red">Super admin</span>',admin:'<span class="badge b-blue">Admin national</span>',gestionnaire:'<span class="badge b-amber">Gestionnaire</span>',province:'<span class="badge b-green">Province</span>'};
     document.getElementById('newUserScope').innerHTML=
@@ -1696,6 +1802,7 @@ function saveSetup(){
   s.years=document.getElementById('setYears').value.split(',').map(x=>+x.trim()).filter(Boolean);
   const lines=id=>document.getElementById(id).value.split('\n').map(x=>x.trim()).filter(Boolean);
   s.modules=lines('setModules');s.interventions=lines('setInterv');s.costInputs=lines('setCost');s.units=lines('setUnits');
+  s.pieceTypes=lines('setPieces');s.budgetLines=lines('setLines');
   s.showBudget=document.getElementById('setShowBudget').checked;
   saveSetupObj(s);buildNav();populateYearSelects();populateRefSelects();toast('Configuration enregistrée','ok');
 }
@@ -1845,8 +1952,10 @@ function exportSheet(type){const code=activeProvince(),d=getData(code);let aoa,n
       const s=(+al.q1||0)+(+al.q2||0)+(+al.q3||0)+(+al.q4||0);
       aoa.push([b.ln,b.activity,b.total,+al.q1||0,+al.q2||0,+al.q3||0,+al.q4||0,(b.total||0)-s]);});
     name='BudgetTrimestriel_'+y;}
-  else if(type==='advances'){aoa=[['Date avance','Bénéficiaire','OP','Activité','Ligne budgétaire','Montant','Trimestre','Date justif','Montant justifié','Montant rendu','Jours non justif.','Statut','Nature pièces','Commentaires']];
-    d.advances.forEach(a=>{const st=advStatus(a);aoa.push([a.date,a.beneficiary,a.op,a.activity,a.lineNo,a.amount,a.quarter,a.justifDate,a.justifAmount,a.returned,st.days,st.label,a.nature,a.comment]);});
+  else if(type==='advances'){aoa=[['Date avance','Bénéficiaire','OP','Activité','Ligne budgétaire','Montant','Trimestre','Date justif','Montant justifié','Reste à justifier','Montant rendu','Jours non justif.','Statut','Détail pièces','Commentaires']];
+    d.advances.forEach(a=>{const st=advStatus(a);const js=justifSum(a);const rem=advRemaining(a);
+      const det=(Array.isArray(a.justifs)&&a.justifs.length)?a.justifs.map(p=>p.type+'='+p.amount).join(' ; '):(a.nature||'');
+      aoa.push([a.date,a.beneficiary,a.op,a.activity,a.lineNo,a.amount,a.quarter,a.justifDate,js,rem,a.returned,st.days,st.label,det,a.comment]);});
     name='JournalAvances';}
   else{const acts=d.activities||[];
     aoa=[['N° ligne','Module','Intervention','Activité','Responsable','Montant prévu','Plan T1','Plan T2','Plan T3','Plan T4','Consommé (avances)','Disponible','% réalisation fin.','Trimestre','Échéance','Statut','Avancement %','Date réalisation','Critique','Observations','Registre d\'incidents','Décision']];
@@ -1855,11 +1964,20 @@ function exportSheet(type){const code=activeProvince(),d=getData(code);let aoa,n
     name='PlanActivites';}
   dl(aoa,name+'_'+provName(code).replace(/\W+/g,'_'));
 }
+function tableToAoa(headers, tbodyId){const aoa=[headers];
+  document.querySelectorAll('#'+tbodyId+' tr').forEach(tr=>{if(tr.querySelector('.empty'))return;
+    aoa.push([...tr.children].map(td=>td.textContent.replace(/\s+/g,' ').trim()));});
+  return aoa;}
 function exportReport(){const code=activeProvince(),y=+document.getElementById('repYear').value;
-  const aoa=[['N° LB','Intervention','Activité','Maître d\'œuvre','Budget période','Réalisé','Disponible','% Réal.','Statut']];
-  document.querySelectorAll('#repRows tr').forEach(tr=>{if(tr.querySelector('.empty'))return;
-    const c=[...tr.children].map(td=>td.textContent.replace(/\s+/g,' ').trim());aoa.push(c);});
-  dl(aoa,'Rapport_'+REP_PERIOD+'_'+y+'_'+provName(code).replace(/\W+/g,'_'));}
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
+    tableToAoa(['N° LB','Intervention','Activité','Maître d\'œuvre','Budget période','Réalisé','Disponible','% Réal.','Statut'],'repRows')),'Rapport');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
+    tableToAoa(['Type de pièce','Montant justifié','Nb pièces','% du justifié'],'repPieceRows')),'Par type de pièce');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
+    tableToAoa(['Activité','Bénéficiaire','Montant','Justifié','Reste','Jours'],'repMissingRows')),'Justifs manquantes');
+  XLSX.writeFile(wb,'Rapport_'+REP_PERIOD+'_'+y+'_'+provName(code).replace(/\W+/g,'_')+'.xlsx');
+  toast('Rapport Excel généré (3 feuilles)','ok');}
 function exportNational(){const y=+document.getElementById('natYear').value;
   const aoa=[['#','Province','Total avances','Nb','Non justifié','% justifié','Délai moyen (j)','En retard','Suivi']];
   document.querySelectorAll('#natRows tr').forEach(tr=>{if(tr.querySelector('.empty'))return;
