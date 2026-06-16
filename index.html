@@ -630,6 +630,13 @@ table.tbl tfoot td{font-weight:800;background:#f3f6fa;border-top:2px solid var(-
         <div style="margin-top:12px"><button class="btn sm ghost" onclick="exportCredentials()">⬇️ Exporter la fiche des identifiants</button></div>
       </div>
 
+      <div class="card" id="gestLinesCard" style="display:none">
+        <h3>📋 Lignes budgétaires</h3>
+        <div class="scope" style="margin-bottom:8px">Ces lignes sont proposées automatiquement dans les formulaires des avances et des activités. Une ligne par rangée.</div>
+        <div class="field"><textarea id="setLinesGest" rows="6" placeholder="N°122 - Appuyer la supervision intégrée&#10;N°110 - Frais de fonctionnement DPS…"></textarea></div>
+        <button class="btn sm green" onclick="saveLinesGest()">💾 Enregistrer les lignes budgétaires</button>
+      </div>
+
       <div class="card">
         <h3>🔐 Mon mot de passe</h3>
         <div class="form-row">
@@ -859,7 +866,7 @@ function getUsers(){
 function saveUsers(u){lsSet('cagf_users',u);}
 /* droits par rôle */
 function roleMenus(role){
-  if(role==='gestionnaire')return ['dashboard','advances','just','activities','national','settings'];
+  if(role==='gestionnaire')return ['dashboard','activities','advances','just','national','settings'];
   if(role==='province')return ['dashboard','advances','just','settings'];
   return null; // superadmin / admin = tous les menus
 }
@@ -1033,12 +1040,13 @@ function buildNav(){
   // boutons de menu : (1) filtre rôle, (2) menus budgétaires masqués, (3) national/paramètres selon droits
   const allowed=roleMenus(SESSION.role); // null = pas de restriction de rôle
   const hid=hiddenMenus();
-  const list=MENUS.filter(m=>{
+  let list=MENUS.filter(m=>{
     if(allowed && !allowed.includes(m[0]))return false;     // rôle gestionnaire
     if(hid.includes(m[0]))return false;                      // menus budgétaires masqués
     if(m[0]==='national' && !canAllProv())return false;      // vue nationale (rôles transversaux)
     return true;
   });
+  if(allowed) list=list.slice().sort((a,b)=>allowed.indexOf(a[0])-allowed.indexOf(b[0])); // ordre défini par le rôle
   list.forEach(([id,lbl])=>{
     const b=document.createElement('button');b.dataset.page=id;b.textContent=lbl;
     b.onclick=()=>switchPage(id);bar.appendChild(b);
@@ -1746,6 +1754,10 @@ function renderSettings(){
   document.getElementById('setupCard').style.display=isAdmin?'block':'none';
   document.getElementById('usersCard').style.display=isAdmin?'block':'none';
   const dbCard=document.getElementById('dbCard');if(dbCard)dbCard.style.display=canDB()?'block':'none';
+  // carte « Lignes budgétaires » pour le gestionnaire (les admins l'ont déjà dans la configuration)
+  const gl=document.getElementById('gestLinesCard');
+  if(gl){const showGl=(SESSION.role==='gestionnaire');gl.style.display=showGl?'block':'none';
+    if(showGl)document.getElementById('setLinesGest').value=(s.budgetLines||[]).join('\n');}
   renderDbCard();
   if(isAdmin){
     document.getElementById('setSeuil').value=s.seuil;document.getElementById('setDevise').value=s.devise;
@@ -1885,7 +1897,14 @@ async function dbPushAll(silent){
 }
 function dbDisconnect(){if(!confirm('Revenir en mode local (navigateur) ? Les données déjà enregistrées restent dans Supabase.'))return;
   sbClearConf();SB=null;SB_ON=false;loadLocalToDB();renderDbCard();renderAll();toast('Mode local réactivé','warn');}
-async function changeMyPass(){const np=document.getElementById('myNewPass').value;if(!np)return toast('Saisir un mot de passe','warn');
+async function saveLinesGest(){
+  const arr=document.getElementById('setLinesGest').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  const s=getSetup();s.budgetLines=arr;
+  try{lsSet('cagf_setup',s);toast(arr.length+' ligne(s) budgétaire(s) enregistrée(s)','ok');}
+  catch(e){toast('Échec de l\'enregistrement : '+(e.message||e),'warn');}
+}
+async function changeMyPass(){
+  const np=document.getElementById('myNewPass').value;if(!np)return toast('Saisir un mot de passe','warn');
   if(AUTH_MODE){if(np.length<6)return toast('6 caractères minimum','warn');
     const {error}=await SB.auth.updateUser({password:np});
     if(error)return toast('Échec : '+error.message,'warn');
