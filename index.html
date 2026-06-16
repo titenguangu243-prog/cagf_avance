@@ -859,7 +859,7 @@ function getUsers(){
 function saveUsers(u){lsSet('cagf_users',u);}
 /* droits par rôle */
 function roleMenus(role){
-  if(role==='gestionnaire')return ['dashboard','advances','just','national','settings'];
+  if(role==='gestionnaire')return ['dashboard','advances','just','activities','national','settings'];
   if(role==='province')return ['dashboard','advances','just','settings'];
   return null; // superadmin / admin = tous les menus
 }
