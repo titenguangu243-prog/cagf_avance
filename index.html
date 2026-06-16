@@ -1638,8 +1638,9 @@ function fillActProv(){const sel=document.getElementById('actFProv');
   if(canAllProv()){sel.disabled=false;sel.innerHTML=PROVINCES.map(p=>`<option value="${p.code}">${esc(p.name)}</option>`).join('');sel.value=activeProvince();}
   else{sel.disabled=true;sel.innerHTML=`<option value="${SESSION.code}">${esc(provName(SESSION.code))}</option>`;sel.value=SESSION.code;}}
 function refreshActLineSelect(code){
-  const d=getData(code||activeProvince());const sel=document.getElementById('actFLine');
+  const d=getData(code||activeProvince());const s=getSetup();const sel=document.getElementById('actFLine');
   const opts=['<option value="">— aucune (activité libre) —</option>'];
+  (s.budgetLines||[]).forEach(l=>{const v=String(l);opts.push(`<option value="${esc(v)}">${esc(v.slice(0,60))}</option>`);});
   (d.budget||[]).slice().sort((a,b)=>a.ln-b.ln).forEach(b=>opts.push(`<option value="${b.ln}">N°${b.ln} · ${esc((b.activity||'').slice(0,40))} (${fmt(b.total)})</option>`));
   sel.innerHTML=opts.join('');
 }
